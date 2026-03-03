@@ -301,6 +301,30 @@ viewBloodInventory() {
                 --column="Blood Availability"
 }
 
+# Check meds expire so that staff accediently dont issue expired meds
+isExpired() {
+        line=$(grep -i "^$1|" "$MEDS")
+ 
+        if [ -z "$line" ]; then
+                return
+        fi
+
+        expDate=$(echo "$line" | cut -d '|' -f5)
+ 
+        today=$(date +%F)
+
+        if [[ "$expDate" < "$today" ]]; then
+                zenity --error --text="Medicine Expired!\n\nExpiry Date: $expDate"
+                writeLog "WARNING" "Expired medicine access blocked: $1"
+                expiredFlag=1
+                return
+        fi
+ 
+        expiredFlag=0
+        return
+}
+
+
 # Issue meds for the patient by the staff
 issueMeds() {
         target=$(zenity --entry --title="Issue Item" --text="Enter name of the Medicine or Blood (e.g., A+):")
@@ -315,6 +339,13 @@ issueMeds() {
                 cat=$(echo "$line" | cut -d '|' -f2)
                 q=$(echo "$line" | cut -d '|' -f3)
                 r=$(echo "$line" | cut -d '|' -f6)
+				
+				expiredFlag=0
+                isExpired "$n"
+
+                if [ "$expiredFlag" -eq 1 ]; then
+                        return
+                fi
 
                 if [ "$r" == "Yes" ] && [ "$activeRole" != "Pharmacist" ]; then
                         zenity --warning --text="Access Denied!\n\n$n is Restricted.\nRequest Pharmacist for this Medicine!"
@@ -383,7 +414,13 @@ requestMeds() {
                 zenity --error --text="Medicine not found!"
                 return
         fi
-
+		
+		expiredFlag=0
+        isExpired "$n"
+        if [ "$expiredFlag" -eq 1 ]; then
+                return
+        fi
+		
         restriction=$(echo "$line" | cut -d '|' -f6)
         if [ "$restriction" != "Yes" ]; then
                 zenity --info --text="Medicine is not restricted."
