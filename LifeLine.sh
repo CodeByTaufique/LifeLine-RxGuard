@@ -303,26 +303,34 @@ viewBloodInventory() {
 
 # Check meds expire so that staff accediently dont issue expired meds
 isExpired() {
-        line=$(grep -i "^$1|" "$MEDS")
- 
-        if [ -z "$line" ]; then
-                return
-        fi
+    line=$(grep -i "^$1|" "$MEDS")
 
-        expDate=$(echo "$line" | cut -d '|' -f5)
- 
-        today=$(date +%F)
-
-        if [[ "$expDate" < "$today" ]]; then
-                zenity --error --text="Medicine Expired!\n\nExpiry Date: $expDate"
-                writeLog "WARNING" "Expired medicine access blocked: $1"
-                expiredFlag=1
-                return
-        fi
- 
-        expiredFlag=0
+    if [ -z "$line" ]; then
         return
+    fi
+
+    expDate=$(echo "$line" | cut -d '|' -f5)
+    # Convert MM/DD/YYYY → YYYY-MM-DD if needed
+    if [[ "$expDate" =~ ^[0-9]{2}/[0-9]{2}/[0-9]{4}$ ]]; then
+        month=$(echo "$expDate" | cut -d '/' -f1)
+        day=$(echo "$expDate" | cut -d '/' -f2)
+        year=$(echo "$expDate" | cut -d '/' -f3)
+        expDate="$year-$month-$day"
+    fi
+
+    today=$(date +%F)
+    # Compare as strings, works now because both are YYYY-MM-DD
+    if [[ "$expDate" < "$today" ]]; then
+        zenity --error --text="Medicine Expired!\n\nExpiry Date: $expDate"
+        writeLog "WARNING" "Expired medicine access blocked: $1"
+        expiredFlag=1
+        return
+    fi
+
+    expiredFlag=0
+    return
 }
+
 
 
 # Issue meds for the patient by the staff
