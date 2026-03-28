@@ -248,35 +248,52 @@ echo "$(date +%F)|$patient|Medicine|$total" >> "$BILL"
 
 # This just check that all required files of this system is present
 healthCheck() {
-        healthReport=""
-        for file in "$MEDS" "$BLOOD" "$USER" "$LOG"; do
-                if [[ -f "$file" ]]; then
-                        healthReport="${healthReport} $file: Online\n"
-                else
-                        healthReport="${healthReport} $file: Missing\n"
-                fi
-        done
-        zenity --info --title="System Status!" --text="Health Check Report : \n\n$healthReport" \
-			--width=550 --height=550
+    healthReport="🩺 LifeLine System Health Check\n\n"
+    for file in "$MEDS" "$BLOOD" "$USER" "$LOG"; do
+        if [[ -f "$file" ]]; then
+            healthReport+=$(printf "✅ %-20s : Online\n" "$file")
+        else
+            healthReport+=$(printf "❌ %-20s : Missing\n" "$file")
+        fi
+    done
+
+    zenity --info \
+        --title="🩺 LifeLine - System Status" \
+        --width=600 \
+        --height=500 \
+        --text="$healthReport" \
+        --ok-label="Close" \
+        --timeout=0
 }
 
 # This is for viewing the meds in inventory
 viewInventory() {
-		(
-        	count=1
-        	while IFS='|' read -r name category qty price exp rest || [ -n "$name" ]; do
-            		risk=$(expiryStatus "$exp" | tr -d '\n')
-            if [[ -z "$risk" ]]; then
-				 risk="$exp"
-			fi
-        	        echo "$count. $name | $category | Stock: $qty | Price: $price | $risk | $rest"
-           			count=$((count + 1))
-        	done < "$MEDS"
-    	) | zenity --list \
-        	--title="Pharmacy Medicine Inventory" \
-        	--width=650 \
-        	--height=500 \
-        	--column="Available Medicines"
+        (
+                while IFS='|' read -r name category qty price exp rest || [ -n "$name" ]; do
+                        risk=$(expiryStatus "$exp" | tr -d '\n')
+                        if [[ -z "$risk" ]]; then
+                                risk="$exp"
+                        fi
+
+                        echo "$name"
+                        echo "$category"
+                        echo "$qty"
+                        echo "$price"
+                        echo "$risk"
+                        echo "$rest"
+                done < "$MEDS"
+        ) | zenity --list \
+                --title="💊 LifeLine Pharmacy Inventory Dashboard" \
+                --text="📦 Real-Time Medicine Stock Overview" \
+                --width=900 \
+                --height=550 \
+                --column="Medicine Name" \
+                --column="Category" \
+                --column="Stock" \
+                --column="Price" \
+                --column="Expiry Status" \
+                --column="Notes" \
+                --ok-label="🔍 Close"
 }
 
 # To check the Blood inventory
@@ -287,19 +304,22 @@ viewBloodInventory() {
         }
 
         (
-                echo "A+ : $(getCount A+)"
-                echo "A- : $(getCount A-)"
-                echo "B+ : $(getCount B+)"
-                echo "B- : $(getCount B-)"
-                echo "O+ : $(getCount O+)"
-                echo "O- : $(getCount O-)"
-                echo "AB+ : $(getCount AB+)"
-                echo "AB- : $(getCount AB-)"
+                echo "A+"; echo "$(getCount A+)"
+                echo "A-"; echo "$(getCount A-)"
+                echo "B+"; echo "$(getCount B+)"
+                echo "B-"; echo "$(getCount B-)"
+                echo "O+"; echo "$(getCount O+)"
+                echo "O-"; echo "$(getCount O-)"
+                echo "AB+"; echo "$(getCount AB+)"
+                echo "AB-"; echo "$(getCount AB-)"
         ) | zenity --list \
-                --title="Available Blood Inventory" \
-                --width=550 \
-                --height=550 \
-                --column="Blood Availability"
+                --title="🩸 LifeLine Blood Bank Dashboard" \
+                --text="🧬 Real-Time Blood Unit Availability" \
+                --width=700 \
+                --height=500 \
+                --column="Blood Group" \
+                --column="Units Available" \
+                --ok-label="🔍 Close"
 }
 
 # Check meds expire so that staff accediently dont issue expired meds
@@ -334,7 +354,9 @@ isExpired() {
 
 # Issue meds for the patient by the staff
 issueMeds() {
-        target=$(zenity --entry --title="Issue Item" --text="Enter name of the Medicine or Blood (e.g., A+):")
+        target=$(zenity --entry \
+                --title="💊 Issue Item" \
+                --text="Enter Medicine or Blood Name (e.g., A+):")
         if [[ -z "$target" ]]; then
                 return
         fi
@@ -346,112 +368,163 @@ issueMeds() {
                 cat=$(echo "$line" | cut -d '|' -f2)
                 q=$(echo "$line" | cut -d '|' -f3)
                 r=$(echo "$line" | cut -d '|' -f6)
-				
-				expiredFlag=0
+                exp=$(echo "$line" | cut -d '|' -f5)
+
+                # Expiry check
+                expiredFlag=0
                 isExpired "$n"
 
                 if [[ "$expiredFlag" -eq 1 ]]; then
                         return
                 fi
 
+                # Restricted medicine check
                 if [[ "$r" == "Yes" ]] && [[ "$activeRole" != "Pharmacist" ]]; then
-                        zenity --warning --text="Access Denied!\n\n$n is Restricted.\nRequest Pharmacist for this Medicine!"
+                        zenity --warning \
+                               --title="🚫 Access Denied" \
+                               --text="$n is a restricted medicine.\nRequest a Pharmacist for access."
                         writeLog "SECURITY" "Access Denied: $n requested by $activeUser"
                         return
                 fi
-                patientName=$(zenity --entry --title="Patient Information" --text="Enter Patient Name:")
+
+                # Patient name
+                patientName=$(zenity --entry \
+                        --title="👤 Patient Information" \
+                        --text="Enter Patient Name:")
                 if [[ -z "$patientName" ]]; then
-                        zenity --error --text="Patient Name is required to issue medication!"
+                        zenity --error --text="Patient Name is required!"
                         return
                 fi
-                askQty=$(zenity --entry --text="Quantity to issue (Available $q) : ")
-                if [[ "$askQty" =~ ^[0-9]+$ ]] && [[ "$askQty" -le "$q" ]] && [[ "$askQty" -gt 0 ]]; then
-                        remaining=$((q - askQty))
-                        grep -v "^$n|" "$MEDS" > "$MEDS.tmp"
-                        cate=$(echo "$line" | cut -d '|' -f2)
-                        price=$(echo "$line" | cut -d '|' -f4)
-                        exp=$(echo "$line" | cut -d '|' -f5)
-                        rest=$(echo "$line" | cut -d '|' -f6)
-                        echo "$n|$cate|$remaining|$price|$exp|$rest" >> "$MEDS.tmp"
-                        mv "$MEDS.tmp" "$MEDS"
-                        writeLog "ISSUE" "Issued $askQty units of $n ($cate) to Patient: $patientName"
-                        zenity --info --text="Transaction Approved!\n\nItem: $n\nQty: $askQty\nPatient: $patientName\nInventory Updated."
-                else
-                        zenity --error --text="Insufficient Stock or Invalid Quantity!"
+
+                # Quantity
+                askQty=$(zenity --entry \
+                        --title="🔢 Quantity to Issue" \
+                        --text="Available Stock: $q\nEnter Quantity to Issue:")
+                if [[ ! "$askQty" =~ ^[0-9]+$ ]] || [[ "$askQty" -le 0 ]] || [[ "$askQty" -gt "$q" ]]; then
+                        zenity --error --text="Invalid quantity or insufficient stock!"
+                        return
                 fi
 
+                # Update inventory
+                remaining=$((q - askQty))
+                grep -v "^$n|" "$MEDS" > "$MEDS.tmp"
+                price=$(echo "$line" | cut -d '|' -f4)
+                rest=$(echo "$line" | cut -d '|' -f6)
+                echo "$n|$cat|$remaining|$price|$exp|$rest" >> "$MEDS.tmp"
+                mv "$MEDS.tmp" "$MEDS"
+
+                # Log and success message
+                writeLog "ISSUE" "Issued $askQty units of $n ($cat) to Patient: $patientName"
+                zenity --info \
+                        --title="✅ Transaction Approved" \
+                        --text="Medicine: $n\nQuantity: $askQty\nPatient: $patientName\nInventory Updated."
+
         else
+                # Blood issue
                 target=$(echo "$target" | tr -d ',[:space:]')
                 line=$(grep -i "^$target|" "$BLOOD")
                 if [[ -z "$line" ]]; then
-                        zenity --error --text="Error: '$target' not found in Medicines or Blood Inventory!"
-                        return 
+                        zenity --error --text="Error: '$target' not found in inventory!"
+                        return
                 fi
-				
+
                 bloodType=$(echo "$line" | cut -d '|' -f1)
                 qty=$(echo "$line" | cut -d '|' -f2)
-                patientName=$(zenity --entry --title="Patient Information" --text="Enter Patient Name for Blood:")
-				
+
+                patientName=$(zenity --entry \
+                        --title="👤 Patient Name" \
+                        --text="Enter Patient Name for Blood:")
                 if [[ -z "$patientName" ]]; then
-                        zenity --error --text="Patient Name is required to issue blood!"
-                        return 
+                        zenity --error --text="Patient Name is required!"
+                        return
                 fi
-				
-                askQty=$(zenity --entry --text="Units to issue (Stock $qty) : ")
-                if [[ "$askQty" =~ ^[0-9]+$ ]] && [[ "$askQty" -le "$qty" ]] && [[ "$askQty" -gt 0 ]]; then
-                        remaining=$((qty - askQty))
-                        grep -v "^$bloodType|" "$BLOOD" > "$BLOOD.tmp"
-                        echo "$bloodType|$remaining" >> "$BLOOD.tmp"
-                        mv "$BLOOD.tmp" "$BLOOD"
-                        writeLog "ISSUE" "Issued $askQty units of blood $bloodType to Patient: $patientName"
-                        zenity --info --text="Blood Issued Successfully!\n\nBlood Type: $bloodType\nQty: $askQty\nPatient: $patientName\nInventory Updated."
-                else
-                        zenity --error --text="Insufficient Blood Stock or Invalid Quantity!"
+
+                askQty=$(zenity --entry \
+                        --title="🔢 Units to Issue" \
+                        --text="Available Stock: $qty\nEnter Units to Issue:")
+                if [[ ! "$askQty" =~ ^[0-9]+$ ]] || [[ "$askQty" -le 0 ]] || [[ "$askQty" -gt "$qty" ]]; then
+                        zenity --error --text="Invalid quantity or insufficient stock!"
+                        return
                 fi
+
+                remaining=$((qty - askQty))
+                grep -v "^$bloodType|" "$BLOOD" > "$BLOOD.tmp"
+                echo "$bloodType|$remaining" >> "$BLOOD.tmp"
+                mv "$BLOOD.tmp" "$BLOOD"
+
+                writeLog "ISSUE" "Issued $askQty units of blood $bloodType to Patient: $patientName"
+                zenity --info \
+                        --title="✅ Blood Issued" \
+                        --text="Blood Type: $bloodType\nUnits: $askQty\nPatient: $patientName\nInventory Updated."
         fi
 }
 
 # To handle request for the restricted meds
 requestMeds() {
-        med=$(zenity --entry --title="Request Restricted Medicine" \
-                --text="Enter Restricted Medicine Name:")
+        med=$(zenity --entry \
+                --title="🚨 Restricted Medicine Request" \
+                --text="Enter Medicine Name:")
         if [[ -z "$med" ]]; then
-		 	return
-		fi
+                return
+        fi
 
         line=$(grep -i "^$med|" "$MEDS")
         if [[ -z "$line" ]]; then
-                zenity --error --text="Medicine not found!"
+                zenity --error \
+                        --title="❌ Not Found" \
+                        --text="Medicine '$med' not found in inventory!"
                 return
         fi
-		
-		expiredFlag=0
-        isExpired "$n"
+
+        expiredFlag=0
+        isExpired "$med"
+
         if [[ "$expiredFlag" -eq 1 ]]; then
                 return
         fi
-		
+
         restriction=$(echo "$line" | cut -d '|' -f6)
         if [[ "$restriction" != "Yes" ]]; then
-                zenity --info --text="Medicine is not restricted."
+                zenity --info \
+                        --title="ℹ️ Not Restricted" \
+                        --text="This medicine is not restricted.\n\nYou can issue it normally."
                 return
         fi
 
-        patient=$(zenity --entry --title="Patient Name" \
+        patient=$(zenity --entry \
+                --title="👤 Patient Details" \
                 --text="Enter Patient Name:")
         if [[ -z "$patient" ]]; then
-			return
-		fi
+                return
+        fi
 
-        qty=$(zenity --entry --title="Quantity" --text="Enter Quantity:")
+        qty=$(zenity --entry \
+                --title="💊 Quantity Request" \
+                --text="Enter Quantity:")
         if [[ ! "$qty" =~ ^[0-9]+$ ]]; then
-			return
-		fi
+                zenity --error \
+                        --title="⚠️ Invalid Input" \
+                        --text="Please enter a valid numeric quantity!"
+                return
+        fi
+
+        # Confirmation dialog (NEW - makes it feel professional)
+        zenity --question \
+                --title="Confirm Request" \
+                --text="Submit request?\n\nMedicine: $med\nPatient: $patient\nQuantity: $qty"
+
+        if [[ $? -ne 0 ]]; then
+                return
+        fi
 
         echo "$(date +%F)|$activeUser|$patient|$med|$qty|DENIED" >> "$EMERGENCY"
+
         writeLog "REQUEST" \
                 "Restricted medicine requested: $med Qty:$qty Patient:$patient Status:DENIED"
-        zenity --info --text="Request submitted.\nWaiting for pharmacist approval."
+
+        zenity --info \
+                --title="✅ Request Submitted" \
+                --text="Request sent successfully!\n\nStatus: ⏳ Pending Pharmacist Approval"
 }
 
 # Response of the restricted meds --> this is for Pharmacist
@@ -531,17 +604,39 @@ Approve and ISSUE this medicine?" \
 
 # Search in the log file to find desired activity or meds usage
 searchLog() {
-        keyword=$(zenity --entry --title="Search Logs" --text="Enter Keyword (Name/Date/Action) : ")
+        keyword=$(zenity --entry \
+                --title="🔎 LifeLine Log Search" \
+                --text="Enter Keyword (Patient / Date / Action):")
+
         if [[ -z "$keyword" ]]; then
                 return
         fi
 
-        results=$(grep -i "$keyword" "$LOG")
-        if [[ -n "$results" ]]; then
-                echo "$results" | zenity --text-info --title="Search Results" --width=800 --height=500
-        else
-                zenity --info --text="No Matching Logs found for '$keyword'."
+        if ! grep -qi "$keyword" "$LOG"; then
+                zenity --warning \
+                        --title="No Results Found" \
+                        --text="❌ No matching logs found for:\n\n'$keyword'"
+                return
         fi
+
+        (
+                grep -i "$keyword" "$LOG" | while IFS='|' read -r date user action details
+                do
+                        echo "$date"
+                        echo "$user"
+                        echo "$action"
+                        echo "$details"
+                done
+        ) | zenity --list \
+                --title="📜 LifeLine Audit Logs" \
+                --text="Showing results for: '$keyword'" \
+                --width=900 \
+                --height=550 \
+                --column="📅 Date" \
+                --column="👤 User" \
+                --column="⚙️ Action" \
+                --column="📝 Details" \
+                --ok-label="Close"
 }
 
 # As name says this make a staff register but only admin can make it
@@ -600,140 +695,199 @@ changeUserPass() {
 # This is the menu where pharmacist Oparates
 pharmaMenu() {
         lowStock
-        while true; do
-		if grep -q '|DENIED$' "$EMERGENCY"; then
-                reqStatus="🔴 EMERGENCY REQUEST PENDING"
-        else
-                reqStatus="🟢 NO PENDING REQUESTS"
-        fi
-                choice=$(zenity --list --title="Pharmacist Dashboard" --text="$reqStatus"  --width=500 --height=600 \
-                        --column="CMD" --column="Service Description" \
-                        "1. ADD" "Register New Medicine to the Inventory" \
-                        "2. BLOOD" "Manage Blood Bank Units" \
-                        "3. DONORS" "Donor Registration & Records" \
-                        "4. BILL" "Patient Billing & Invoices" \
-                        "5. STATUS" "Perform System Health Check" \
-                        "6. EMERGENCY" "Request for the Medicine" \
-                        "7. USERS" "Manage Staff Access & Roles" \
-                        "8. SEARCH" "Search Activity & Audit Logs" \
-                        "9. BACKUPS" "Export Database Backups" \
-                        "10. UPDATE PASSWORD" "Change User Password" \
-                        "11. LOGOUT" "End Current Session")
 
-                case "$choice" in 
-                        "1. ADD") addMeds ;;
-                        "2. BLOOD") viewBloodInventory ;;
-                        "3. DONORS") manageDonors ;;
-                        "4. BILL") generateBill ;;
-                        "5. STATUS") healthCheck ;;
-                        "6. EMERGENCY") respondReq ;;
-                        "7. USERS") registerAccount "User" ;;
-                        "8. SEARCH") searchLog ;;
-                        "9. BACKUPS")
+        while true; do
+                if grep -q '|DENIED$' "$EMERGENCY"; then
+                        reqStatus="🔴 Emergency Requests Pending"
+                else
+                        reqStatus="🟢 System Normal - No Pending Requests"
+                fi
+
+                choice=$(zenity --list \
+                        --title="🩺 LifeLine Pharmacist Dashboard" \
+                        --text="Welcome, $activeUser\n\n$status\n\nSelect an operation:" \
+                        --width=600 --height=600 \
+                        --column="Module" --column="Description" \
+                        "💊 MEDICINE MANAGEMENT" "Add / Update Medicines Inventory" \
+                        "🩸 BLOOD BANK" "Manage Blood Stock & Availability" \
+                        "🧑‍🤝‍🧑 DONOR SYSTEM" "Register & Manage Donors" \
+                        "💰 BILLING SYSTEM" "Generate Patient Bills & Invoices" \
+                        "📊 SYSTEM STATUS" "Run Health Check & Alerts" \
+                        "🚨 EMERGENCY REQUESTS" "Approve / Reject Restricted Requests" \
+                        "👥 USER MANAGEMENT" "Add Staff & Assign Roles" \
+                        "🔍 AUDIT LOGS" "Search System Activities" \
+                        "💾 BACKUP SYSTEM" "Export Full Database Backup" \
+                        "🔑 CHANGE PASSWORD" "Update Your Password" \
+                        "🚪 LOGOUT" "Securely Exit Session")
+
+                case "$choice" in
+                        "💊 MEDICINE MANAGEMENT") addMeds ;;
+                        "🩸 BLOOD BANK") viewBloodInventory ;;
+                        "🧑‍🤝‍🧑 DONOR SYSTEM") manageDonors ;;
+                        "💰 BILLING SYSTEM") generateBill ;;
+                        "📊 SYSTEM STATUS") healthCheck ;;
+                        "🚨 EMERGENCY REQUESTS") respondReq ;;
+                        "👥 USER MANAGEMENT") registerAccount "User" ;;
+                        "🔍 AUDIT LOGS") searchLog ;;
+                        "💾 BACKUP SYSTEM")
                                 zip -r "$BACKUP/dbBackup$(date +%s).zip" "$DB"
-                                zenity --info --text="Backup saved in $BACKUP"
+                                zenity --info \
+                                        --title="✅ Backup Completed" \
+                                        --text="Database backup saved successfully.\n\nLocation: $BACKUP"
                                 ;;
-                        "10. UPDATE PASSWORD") changeUserPass ;;
-                        "11. LOGOUT") break ;;
+
+                        "🔑 CHANGE PASSWORD") changeUserPass ;;
+                        "🚪 LOGOUT") break ;;
                         *) break ;;
                 esac
         done
 }
+
 
 # Staff menu where Stuff oparates
 staffMenu() {
         while true; do
-                choice=$(zenity --list --title="STAFF Portal - $activeUser" --width=450 --height=450 \
-                        --column="CMD" --column="Hospital Service" \
-                        "1. VIEW" "Check Current Pharmacy Stock" \
-                        "2. ISSUE" "Request & Issue Medicine" \
-                        "3. BLOOD" "Check Blood Bank Levels" \
-                        "4. DONORS" "View Donor Contact List" \
-						"5. REQUEST MEDICINE" "Restricted Medcine Request" \
-                        "6. FINANCE" "Check Patient Bill History" \
-                        "7. SEARCH" "Search Past Activities" \
-                        "8. UPDATE PASS" "Change Password" \
-                        "9. LOGOUT" "Exit Portal")
+                choice=$(zenity --list \
+                        --title="🩺 LifeLine Staff Dashboard - $activeUser" \
+                        --text="Select a service to continue" \
+                        --width=520 --height=520 \
+                        --column="Option" --column="Service Description" \
+                        "📦 VIEW INVENTORY" "Check Current Pharmacy Stock" \
+                        "💊 ISSUE MEDICINE" "Request & Issue Medicine" \
+                        "🩸 BLOOD BANK" "Check Blood Availability" \
+                        "🧑‍🤝‍🧑 DONOR LIST" "View Registered Donors" \
+                        "⚠️ REQUEST RESTRICTED" "Request Restricted Medicine" \
+                        "💰 FINANCE" "View Patient Billing Records" \
+                        "🔍 SEARCH LOGS" "Search System Activities" \
+                        "🔑 CHANGE PASSWORD" "Update Your Password" \
+                        "🚪 LOGOUT" "Exit Staff Portal")
 
                 case "$choice" in
-                        "1. VIEW") viewInventory ;;
-                        "2. ISSUE") issueMeds ;;
-                        "3. BLOOD") viewBloodInventory ;;
-                        "4. DONORS")
-								if [[ ! -s "$DONOR" ]]; then
-	    							zenity --info --text="No donors registered yet."
-    								return
-								fi
-								donorList=()
-								while IFS='|' read -r name blood phone date
-								do
-    								donorList+=("$name | $blood | $phone | $date")
-								done < "$DONOR"
-								zenity --list \
-       								--title="Registered Donors" \
-       								--width=650 \
-       								--height=500 \
-       								--column="Available Donors" \
-       							"${donorList[@]}"
-								;;
-						"5. REQUEST MEDICINE") requestMeds ;;
-                        "6. FINANCE")
-								if [[ ! -s "$BILL" ]]; then
-    								zenity --info --text="No billing records yet."
-    								return
-								fi
-								billList=()
-								
-								while IFS='|' read -r date patient type amount
-								do
-    								billList+=("$date | $patient | $type | $amount")
-								done < "$BILL"
-								zenity --list \
-				       				--title="Billing Logs" \
-				       				--width=700 \
-				       				--height=500 \
-				       				--column="Billing Records" \
-       							"${billList[@]}"
-								;;
-                        "7. SEARCH") searchLog ;;
-                        "8. UPDATE PASS") changeUserPass ;;
-                        "9. LOGOUT") break ;;
+                        "📦 VIEW INVENTORY") viewInventory ;;
+                        "💊 ISSUE MEDICINE") issueMeds ;;
+                        "🩸 BLOOD BANK") viewBloodInventory ;;
+                        "🧑‍🤝‍🧑 DONOR LIST")
+                                if [[ ! -s "$DONOR" ]]; then
+                                        zenity --info \
+                                                --title="Donor List" \
+                                                --text="No donors registered yet."
+                                        continue
+                                fi
+
+                                donorList=()
+
+                                while IFS='|' read -r name blood phone date
+                                do
+                                        donorList+=("$name" "$blood" "$phone" "$date")
+                                done < "$DONOR"
+
+                                zenity --list \
+                                        --title="🧑‍🤝‍🧑 Registered Blood Donors" \
+                                        --width=700 \
+                                        --height=500 \
+                                        --column="Name" \
+                                        --column="Blood Group" \
+                                        --column="Phone" \
+                                        --column="Last Donation" \
+                                "${donorList[@]}"
+                                ;;
+
+                        "⚠️ REQUEST RESTRICTED") requestMeds ;;
+                        "💰 FINANCE")
+                                if [[ ! -s "$BILL" ]]; then
+                                        zenity --info \
+                                                --title="Finance Records" \
+                                                --text="No billing records available."
+                                        continue
+                                fi
+
+                                billList=()
+
+                                while IFS='|' read -r date patient type amount
+                                do
+                                        billList+=("$date" "$patient" "$type" "$amount")
+                                done < "$BILL"
+
+                                zenity --list \
+                                        --title="💰 Billing History" \
+                                        --width=750 \
+                                        --height=500 \
+                                        --column="Date" \
+                                        --column="Patient" \
+                                        --column="Type" \
+                                        --column="Amount" \
+                                "${billList[@]}"
+                                ;;
+
+                        "🔍 SEARCH LOGS") searchLog ;;
+                        "🔑 CHANGE PASSWORD") changeUserPass ;;
+                        "🚪 LOGOUT") break ;;
                         *) break ;;
                 esac
         done
 }
 
-# Minn method which run 1st then rely to the other methodes
+# Main method which run 1st then rely to the other methodes
 lifeLine() {
         dataBase
         if [[ ! -s "$USER" ]]; then
-                zenity --info --text="First Time Setup : Register as the Admin Pharmacist!"
+                zenity --info \
+                        --title="🩺 LifeLine Setup" \
+                        --text="Welcome to LifeLine System\n\nFirst Time Setup Required!\n\nRegister as Admin Pharmacist."
                 registerAccount "Pharmacist"
         fi
 
         while true; do
-                loginRaw=$(zenity --forms --title="LifeLine Login" --text="System Authentication" \
-                                --add-entry="Username" \
-                                --add-password="Password")
+                loginRaw=$(zenity --forms \
+                        --title="🩺 LifeLine Secure Login" \
+                        --text="🔐 Enter your credentials to continue\n" \
+                        --width=450 --height=300 \
+                        --add-entry="👤 Username" \
+                        --add-password="🔑 Password" \
+                        --add-combo="🧑⚕️ Role" \
+                        --combo-values="Pharmacist|Staff" \
+                        --combo-values="Staff" )
+
                 if [[ -z "$loginRaw" ]]; then
                         exit 0
                 fi
 
                 uLog=$(echo "$loginRaw" | cut -d'|' -f1)
                 pLog=$(echo "$loginRaw" | cut -d'|' -f2)
+                rLog=$(echo "$loginRaw" | cut -d'|' -f3)
+
                 match=$(grep "^$uLog|$pLog|" "$USER")
 
                 if [[ -n "$match" ]]; then
+                        actualRole=$(echo "$match" | cut -d'|' -f3)
+
+                        # Role validation
+                        if [[ "$rLog" != "$actualRole" ]]; then
+                                zenity --error \
+                                        --title="❌ Role Mismatch" \
+                                        --text="Incorrect Role Selected!\n\nYou are registered as: $actualRole"
+                                writeLog "AUTHENTICATION" "Role mismatch for $uLog"
+                                continue
+                        fi
+
                         activeUser="$uLog"
-                        activeRole=$(echo "$match" | cut -d'|' -f3)
+                        activeRole="$actualRole"
+
+                        zenity --info \
+                                --title="✅ Login Successful" \
+                                --text="Welcome, $activeUser!\nRole: $activeRole"
+
                         writeLog "AUTHENTICATION" "Successful Login"
+
                         if [[ "$activeRole" == "Pharmacist" ]]; then
                                 pharmaMenu
                         else
                                 staffMenu
                         fi
                 else
-                        zenity --error --text="Access Denied! Invalid Credentials!"
+                        zenity --error \
+                                --title="🚫 Access Denied" \
+                                --text="Invalid Username or Password!"
                         writeLog "AUTHENTICATION" "Failed Login Attempt : $uLog"
                 fi
         done
