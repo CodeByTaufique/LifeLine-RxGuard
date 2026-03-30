@@ -1,2 +1,2 @@
 Taufique|1234|Pharmacist
-Akash|1234|User
+Akash|1234|Staff
