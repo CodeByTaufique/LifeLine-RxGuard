@@ -292,7 +292,7 @@ viewInventory() {
                 --column="Stock" \
                 --column="Price" \
                 --column="Expiry Status" \
-                --column="Notes" \
+                --column="Restricted Status" \
                 --ok-label="🔍 Close"
 }
 
