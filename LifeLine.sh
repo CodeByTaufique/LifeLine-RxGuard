@@ -150,7 +150,17 @@ manageDonors() {
    			 zenity --error --text="All fields are required!"
     		 return
 		fi
-			 
+
+		 name=$(echo "$donorInput" | cut -d '|' -f1)
+         bloodType=$(echo "$donorInput" | cut -d '|' -f2)
+         phone=$(echo "$donorInput" | cut -d '|' -f3)
+         regDate=$(echo "$donorInput" | cut -d '|' -f4)
+
+         if [[ -z "$name" || -z "$bloodType" || -z "$phone" || -z "$regDate" ]]; then
+                 zenity --error --text="All fields are required!"
+                 return
+         fi
+ 
     	if [[ -n "$donorInput" ]]; then
         	echo "$donorInput" >> "$DONOR"
         	bloodType=$(echo "$donorInput" | cut -d '|' -f2)
@@ -199,6 +209,15 @@ generateBill() {
     					zenity --error --text="All fields are required!"
     					return
 				fi
+
+				name=$(echo "$billInput" | cut -d '|' -f1)
+                type=$(echo "$billInput" | cut -d '|' -f2)
+                amount=$(echo "$billInput" | cut -d '|' -f3)
+
+                if [[ -z "$name" || -z "$type" || -z "$amount" ]]; then
+                        zenity --error --text="All fields are required!"
+                        return
+                fi
 						
                 if [[ -n "$billInput" ]]; then
                         echo "$(date +%F)|$billInput" >> "$BILL"
