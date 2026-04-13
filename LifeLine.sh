@@ -109,10 +109,20 @@ addMeds() {
         medsExp=$(echo "$input" | cut -d '|' -f5)
         medsRest=$(echo "$input" | cut -d '|' -f6)
 
+		if [[ -z "$medsName" || -z "$medsCat" || -z "$medsQty" || -z "$medsPrice" || -z "$medsExp" ]]; then
+    		zenity --error --text="All fields are required!"
+    		return
+		fi
+
         if [[ -z "$medsQty" || ! "$medsQty" =~ ^[0-9]+$ ]]; then
                 zenity --error --text="Invalid Quantity!"
                 return
         fi
+
+		if [[ ! "$medsPrice" =~ ^[0-9]+$ ]]; then
+    		zenity --error --text="Invalid Price!"
+    		return
+		fi
 
         if grep -qi "^$medsName|" "$MEDS"; then
                 oldLine=$(grep -i "^$medsName|" "$MEDS")
